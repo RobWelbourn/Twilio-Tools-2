@@ -1,6 +1,31 @@
 #!/usr/bin/env python 
 
 """Get the CDRs from a Twilio account for a specified time period.
+
+usage: getcdrs.py [-h] [-s START] [-e END] [--tz TZ] [-a ACCOUNT] [-p PW]
+                  [--subs] [--fields FIELDS] [--version]
+                  [--log {debug,info,warning}]
+                  cdr_file
+
+    positional arguments:
+    cdr_file                    output CSV file
+
+    optional arguments:
+    -h, --help                  show this help message and exit
+    -s START, --start START     start at this date/time (YYYY-MM-DD [HH:MM:SS];
+                                default: start of last month)
+    -e END, --end END           end before this date/time (YYYY-MM-DD [HH:MM:SS];
+                                default: start of this month)
+    --tz TZ                     timezone as ±HHMM offset from UTC (default: timezone
+                                of local machine)
+    -a ACCOUNT, --account ACCOUNT
+                                account SID (default: TWILIO_ACCOUNT_SID env var)
+    -p PW, --pw PW              auth token (default: TWILIO_AUTH_TOKEN env var)
+    --subs                      include subaccounts
+    --fields FIELDS             comma-separated list of desired fields (default: all)
+    --version                   show program's version number and exit
+    --log {debug,info,warning}  set logging level
+
 """
 
 
@@ -11,10 +36,10 @@ import logging
 import csv
 from datetime import datetime
 from twilio.rest import Client
-from twilio.base.exceptions import TwilioRestException
+from twilio.base.exceptions import TwilioException
 
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 CDR_FIELDS = [
     "sid",
@@ -113,12 +138,12 @@ def get_args():
         '-a', '--account', default=os.environ.get('TWILIO_ACCOUNT_SID'),
         help="account SID (default: TWILIO_ACCOUNT_SID env var)")
     parser.add_argument(
-        '-k', '--key', default=os.environ.get('TWILIO_API_KEY'),
-        help="API key (default: TWILIO_API_KEY env var)")
-    parser.add_argument(
         '-p', '--pw', 
-        default=os.environ.get('TWILIO_API_SECRET') or os.environ.get('TWILIO_AUTH_TOKEN'),
-        help="API secret or auth token (default: TWILIO_API_SECRET or TWILIO_AUTH_TOKEN env var)")
+        default=os.environ.get('TWILIO_AUTH_TOKEN'),
+        help="auth token (default: TWILIO_AUTH_TOKEN env var)")
+    parser.add_argument(
+        '--subs', action='store_true', 
+        help="include subaccounts")
     parser.add_argument(
         '--fields', default=CDR_FIELDS, type=field_list,
         help="comma-separated list of desired fields (default: all)")
@@ -134,24 +159,36 @@ def get_args():
     # Validate arguments.
     if args.start >= args.end: parser.error("Start date is after end date")
     if not args.account: parser.error("No account SID found")
-    if args.key:
-        if not args.pw: parser.error("No API secret found")
-    else:
-        if not args.pw: parser.error("No auth token found")
+    if not args.pw: parser.error("No auth token found")
 
     return args
 
 
-def main(args):
-    configure_logging(level=getattr(logging, args.log.upper()))
-    client = Client(args.key, args.pw, args.account) if args.key else Client(args.account, args.pw)
-    logger.info("Getting CDRs for account %s between %s and %s", args.account, args.start, args.end)
+# Generator function that gets calls over the specified period for 
+# the specified account, and optionally for its subaccounts.  
+def calls(args):
+    client = Client(args.account, args.pw)
 
     try:
-        calls = client.calls.list(start_time_after=args.start, start_time_before=args.end)
-    except TwilioRestException:
-        sys.exit("Error: cannot access CDRs; please check account credentials")
+        if args.subs:
+            accounts = client.api.accounts.list()
+        else:
+            accounts = [client.api.accounts(args.account).fetch()]
 
+        for account in accounts:      
+            logger.info("Getting CDRs for account %s (%s)", account.sid, account.friendly_name)
+            client = Client(args.account, args.pw, account.sid)
+            calls = client.calls.list(start_time_after=args.start, start_time_before=args.end)
+            for call in calls:
+                yield call
+
+    except TwilioException as ex:
+        sys.exit(f"Unable to get CDRS: check credentials. Full message:\n{ex}")                    
+
+
+def main(args):
+    configure_logging(level=getattr(logging, args.log.upper()))
+    logger.info("Getting CDRs for the period %s to %s", args.start, args.end)
     logger.debug("Writing CDRs...")
 
     with args.cdr_file as cdr_file:
@@ -161,7 +198,7 @@ def main(args):
         # Special case because 'from' is a reserved word in Python; must use 'from_' instead.
         pythonic_fields = ['from_' if field == 'from' else field for field in args.fields]
 
-        for call in calls:
+        for call in calls(args):
             cdr = [getattr(call, field) for field in pythonic_fields]
             writer.writerow(cdr)
 
