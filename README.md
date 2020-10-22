@@ -1,7 +1,7 @@
 # Twilio-CPS
 _Model Calls Per Second needed for Twilio Programmable Voice_
 
-This repository contains a suite of Python scripts that are designed to extract call volume information out of your call detail records, and answer the question, 'How many calls per second do I need?'.  With that information, you can be confident that you are purchasing the right level of CPS for your Twilio account.
+This repository contains a suite of Python scripts that are designed to extract call volume information out of your call detail records, and answer the question, 'How many calls per second do I need?'  With that information, you can be confident that you are purchasing the right level of CPS for your Twilio account.
 
 You can think of these scripts as a pipeline:
 
@@ -48,14 +48,14 @@ optional arguments:
 --version                   show program's version number and exit
 --log {debug,info,warning}  set logging level
 ```
-Add a filename to the command line prefixed by '@' if you wish to place parameters in a file, one parameter per line.  A parameter file to get a minimal set of fields neccessary to do CPS analysis would contain the following line:
+Add a filename to the command line prefixed by '@' if you wish to place parameters in a file, one parameter per line.  A parameter file to get a minimal set of fields necessary to do CPS analysis would contain the following line:
 
 ```
 --fields=sid,date_created,direction,queue_time
 ```
 
 ## countcps.py
-This script takes a CDR file and produces another CSV file, containing call counts for one second slices of the time period. The script can ingest CDR files from various sources: the above `getcdrs.py` script; downloads from the Twilio console or the internal Monkey portal; Looker SQL queries on the Twilio data warehouse; or CDRs produced by external systems for customers looking to move workloads onto Twilio.
+This script takes a CDR file and produces another CSV file, containing call counts for one-second slices of the time period. The script can ingest CDR files from various sources: the above `getcdrs.py` script; downloads from the Twilio console or the internal Monkey portal; Looker SQL queries on the Twilio data warehouse; or CDRs produced by external systems for customers looking to move workloads onto Twilio.
 
 ```
 usage: countcps.py [-h] [-s START] [-e END] [-t {auto,header,positional}]
@@ -136,6 +136,28 @@ Queue Time Estimates
 ## analyzecps.py
 This script takes the CPS counts and performs _what if?_ calculations on what the call queues would be like if the Twilio account CPS limit was set to a given level.  There is no single right answer to what the CPS value should be; an automated outbound notification service for, say, school closures could tolerate a much higher delay than a contact center making outbound calls.  
 
+```
+usage: analyzecps.py [-h] [-s START] [-e END] [--cps CPS] [--version]
+                    [--log {debug,info,warning}]
+                    cps_file
+
+Analyze a CSV file of CPS counts to determine maximum call queuing time.
+
+positional arguments:
+cps_file                    CSV file containing CPS counts
+
+optional arguments:
+-h, --help                  show this help message and exit
+-s START, --start START     ignore records before this date/time (YYYY-MM-DD [HH:MM:SS]
+-e END, --end END           ignore records after this date/time (YYYY-MM-DD [HH:MM:SS])
+--cps CPS                   CPS value (default: interactive)
+--version                   show program's version number and exit
+--log {debug,info,warning}  set logging level
+```
+The program may be used interactively, in which case it will prompt for the CPS value and
+display the graph in response.  To try a different value, you will first have to close
+the graph window.
+
 The program will calculate the daily maximum queue lengths at a given CPS value, and produce a graph of values over the specified time period:
 
 ```
@@ -145,5 +167,3 @@ Daily maximum call queue times at 10 CPS:
 Fri 2020-10-09:    9.2 seconds at 08:00:05
 ```
 ![analyzecps screenshot 1](https://github.com/RobWelbourn/Twilio-CPS/blob/master/images/analyzecps1.png)
-
-When in interactive mode, you should close the graph window before inputting a new CPS value.
