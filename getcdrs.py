@@ -12,9 +12,9 @@ usage: getcdrs.py [-h] [-s START] [-e END] [--tz TZ] [-a ACCOUNT] [-p PW]
 
     optional arguments:
     -h, --help                  show this help message and exit
-    -s START, --start START     start at this date/time (YYYY-MM-DD [HH:MM:SS];
+    -s START, --start START     start at this date/time (YYYY-MM-DD [[HH:MM:SS]±HHMM];
                                 default: start of last month)
-    -e END, --end END           end before this date/time (YYYY-MM-DD [HH:MM:SS];
+    -e END, --end END           end before this date/time (YYYY-MM-DD [[HH:MM:SS]±HHMM];
                                 default: start of this month)
     --tz TZ                     timezone as ±HHMM offset from UTC (default: timezone
                                 of local machine)
@@ -25,6 +25,9 @@ usage: getcdrs.py [-h] [-s START] [-e END] [--tz TZ] [-a ACCOUNT] [-p PW]
     --fields FIELDS             comma-separated list of desired fields (default: all)
     --version                   show program's version number and exit
     --log {debug,info,warning}  set logging level
+
+Add a filename to the command line prefixed by '@' if you wish to place
+parameters in a file, one parameter per line.
 
 """
 
@@ -39,7 +42,7 @@ from twilio.rest import Client
 from twilio.base.exceptions import TwilioException
 
 
-__version__ = "1.1"
+__version__ = "1.1.1"
 
 CDR_FIELDS = [
     "sid",
@@ -127,10 +130,10 @@ def get_args():
         help="output CSV file")
     parser.add_argument(
         '-s', '--start', type=datetime.fromisoformat, default=first_of_last_month,
-        help="start at this date/time (YYYY-MM-DD [HH:MM:SS]; default: start of last month)")
+        help="start at this date/time (YYYY-MM-DD [[HH:MM:SS]±HH:MM]; default: start of last month)")
     parser.add_argument(
         '-e', '--end', type=datetime.fromisoformat, default=first_of_this_month,
-        help="end before this date/time (YYYY-MM-DD [HH:MM:SS]; default: start of this month)")
+        help="end before this date/time (YYYY-MM-DD [[HH:MM:SS]±HH:MM]; default: start of this month)")
     parser.add_argument(
         '--tz', default=local_timezone, type=tzinfo,
         help="timezone as ±HHMM offset from UTC (default: timezone of local machine)")
@@ -152,9 +155,9 @@ def get_args():
                         help="set logging level")
     args = parser.parse_args()
 
-    # Apply timezone offset to start and end date/times.
-    args.start = args.start.replace(tzinfo=args.tz)
-    args.end = args.end.replace(tzinfo=args.tz)
+    # Apply timezone offset to start and end date/times, if TZ was not specified (the ±HH:MM part).
+    if args.start.tzinfo is None: args.start = args.start.replace(tzinfo=args.tz)
+    if args.end.tzinfo is None: args.end = args.end.replace(tzinfo=args.tz)
 
     # Validate arguments.
     if args.start >= args.end: parser.error("Start date is after end date")
