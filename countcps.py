@@ -4,12 +4,12 @@
 with call counts, again as a CSV file.  Optionally, the program will display the 
 spread of CPS values.
 
-    usage: countcps.py [-h] [-s START] [-e END] [-t {auto,header,positional}]
-                    [-c COLUMN] [--spread] [--queue] [--version]
-                    [--log {debug,info,warning}]
+    usage: countcps.py [-h] [-s START] [-e END] [--tz TZ]
+                    [-t {auto,header,positional}] [-c COLUMN] [--spread]
+                    [--queue] [--version] [--log {debug,info,warning}]
                     cdr_file cps_file
 
-    Create an ordered calls-per-second CSV file from a CDR file.
+    Create a calls-per-second CSV file from a CDR file.
 
     positional arguments:
     cdr_file                    input CSV file containing call detail records
@@ -17,16 +17,21 @@ spread of CPS values.
 
     optional arguments:
     -h, --help                  show this help message and exit
-    -s START, --start START     ignore records before this date/time (YYYY-MM-DD [HH:MM:SS])
-    -e END, --end END           ignore records after this date/time (YYYY-MM-DD [HH:MM:SS])
+    -s START, --start START     ignore records before this date/time 
+                                (YYYY-MM-DD [[HH:MM:SS]±HH:MM])
+    -e END, --end END           ignore records after this date/time 
+                                (YYYY-MM-DD [[HH:MM:SS]±HH:MM])
+    --tz TZ                     timezone as ±HHMM offset from UTC (default: timezone
+                                of local machine)
     -t {auto,header,positional}, --type {auto,header,positional}
                                 specify format of CDR file (auto: autodetect; header:
                                 has a header row; positional: no header row)
-    -c COLUMN, --column COLUMN  column name or number containing call start date/time
+    -c COLUMN, --column COLUMN  column name or number containing call start date/time                       
     --spread                    display CPS spread
     --queue                     display queue time estimates from CDRs
     --version                   show program's version number and exit
     --log {debug,info,warning}  set logging level
+                            
 
 The program will by default attempt to auto-detect the format of the CDR file.  Twilio
 Console, Looker and Monkey download formats are recognized.  Otherwise, it looks for the 
@@ -37,11 +42,6 @@ the column that contains the date/time the call was made.
 Note that the program will automatically filter out non-Outgoing API calls for Console, 
 Looker and Monkey CDRs; for other sources, you should make sure that the only calls 
 included in the CDR file are outbound calls.
-
-Regarding timezones: the output CPS file contains date/times that are "naive", that is
-to say, have no timezone information included.  Console CDRs will generally have the
-time set to the timezone of the Console user; Monkey CDRs use Pacific Time.  The output
-file will reflect the input file's timezone.
 """
 
 
@@ -92,30 +92,62 @@ def get_args():
         except ValueError:
             return str
 
+    # Parse a timezone offset and return a tzinfo object.
+    def tzinfo(str):
+        try:
+            dt = datetime.strptime(str, '%z')
+            return dt.tzinfo
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                "Timezone offset should be a signed value in the form ±HHMM")
+
+    # Calculate timezone default.
+    now = datetime.now()
+    local_timezone = now.astimezone().tzinfo
+
     parser = argparse.ArgumentParser(
-        description="Create an ordered calls-per-second CSV file from a CDR file.",
-        epilog=("We recommend defaulting the CDR file type to 'auto', unless the start "
-                "date/time is not the first date/time column in the file, in which "
-                "case you should specify 'column', which is the name (type='header') "
-                "or number (type='positional') of the start date/time column."))
-    parser.add_argument('cdr_file', type=argparse.FileType('r'), 
-                        help="input CSV file containing call detail records")
-    parser.add_argument('cps_file', type=argparse.FileType('w'), 
-                        help="output CSV file containing CPS counts")
-    parser.add_argument('-s', '--start', type=datetime.fromisoformat, 
-                        help="ignore records before this date/time (YYYY-MM-DD [HH:MM:SS])")
-    parser.add_argument('-e', '--end', type=datetime.fromisoformat,
-                        help="ignore records after this date/time (YYYY-MM-DD [HH:MM:SS])")
-    parser.add_argument('-t', '--type', choices=['auto', 'header', 'positional'], default='auto',
-                        help=("specify format of CDR file (auto: autodetect; "
-                              "header: has a header row; positional: no header row)"))
-    parser.add_argument('-c', '--column', type=column_id,
-                        help="column name or number containing call start date/time")
-    parser.add_argument('--spread', action='store_true', help="display CPS spread")
-    parser.add_argument('--queue', action='store_true', help="display queue time estimates from CDRs")
-    parser.add_argument('--version', action='version', version=__version__)
-    parser.add_argument('--log', choices=['debug', 'info', 'warning'], 
-                        default='info', help="set logging level")
+        description="Create a calls-per-second CSV file from a CDR file.",
+        epilog=(
+            "We recommend defaulting the CDR file type to 'auto', unless the start "
+            "date/time is not the first date/time column in the file, in which "
+            "case you should specify 'column', which is the name (type='header') "
+            "or number (type='positional') of the start date/time column. "
+            "Add a filename to the command line prefixed by '@' if you wish to place "
+            "parameters in a file, one parameter per line."),
+        fromfile_prefix_chars='@')
+    parser.add_argument(
+        'cdr_file', type=argparse.FileType('r'), 
+        help="input CSV file containing call detail records")
+    parser.add_argument(
+        'cps_file', type=argparse.FileType('w'), 
+        help="output CSV file containing CPS counts")
+    parser.add_argument(
+        '-s', '--start', type=datetime.fromisoformat, 
+        help="ignore records before this date/time (YYYY-MM-DD [[HH:MM:SS]±HHMM])")
+    parser.add_argument(
+        '-e', '--end', type=datetime.fromisoformat,
+        help="ignore records after this date/time (YYYY-MM-DD [[HH:MM:SS]±HHMM])")
+    parser.add_argument(
+        '--tz', default=local_timezone, type=tzinfo,
+        help="timezone as ±HHMM offset from UTC (default: timezone of local machine)")
+    parser.add_argument(
+        '-t', '--type', choices=['auto', 'header', 'positional'], default='auto',
+        help=("specify format of CDR file (auto: autodetect; "
+              "header: has a header row; positional: no header row)"))
+    parser.add_argument(
+        '-c', '--column', type=column_id,
+        help="column name or number containing call start date/time")
+    parser.add_argument(
+        '--spread', action='store_true', 
+        help="display CPS spread")
+    parser.add_argument(
+        '--queue', action='store_true', 
+        help="display queue time estimates from CDRs")
+    parser.add_argument(
+        '--version', action='version', version=__version__)
+    parser.add_argument(
+        '--log', choices=['debug', 'info', 'warning'], default='info', 
+        help="set logging level")
     args = parser.parse_args()
 
     if args.type == 'positional' and not col_num:
@@ -283,6 +315,31 @@ def detect_cdr_type(args):
     return cdr_info
 
 
+# We will need to make sure that start and end times have proper timezone info.  
+# If the CDRs contain TZ info, then the start and end times must also contain 
+# TZ info; the reverse is also true.
+def adjust_start_and_end_times(start, end, cdr_tz, given_tz):
+    if start: logger.debug("Start date/time parsed as %r", start)
+    if end: logger.debug("End date/time parsed as %r", end)
+    logger.debug("Timezone adjustment if needed: %r", given_tz)
+    
+    if cdr_tz:
+        if start and start.tzinfo is None:
+            start = start.replace(tzinfo=given_tz)
+        if end and end.tzinfo is None:        
+            end = end.replace(tzinfo=given_tz)
+    else:
+        if start and start.tzinfo:
+            start = start.replace(tzinfo=None)
+        if end and end.tzinfo:        
+            end = end.replace(tzinfo=None)
+
+    if start: logger.debug("Adjusted start date/time: %r", start)
+    if end: logger.debug("Adjusted end date/time: %r", end)
+
+    return start, end
+
+
 def calculate_spread(intervals):
     logger.debug("Calculating spread...")
     spread = {}
@@ -317,11 +374,8 @@ def print_queue_times(queue_times):
 
 def main(args):
     configure_logging(level=getattr(logging, args.log.upper()))
-
-    # Collect info about the CDR file format, and update the timezone info in the start and end times.
     cdr_info = detect_cdr_type(args)
-    if args.start: args.start = args.start.replace(tzinfo=cdr_info.tzinfo)
-    if args.end: args.end = args.end.replace(tzinfo=cdr_info.tzinfo)
+    start, end = adjust_start_and_end_times(args.start, args.end, cdr_info.tzinfo, args.tz)
 
     logger.debug("Reading CSV file...")
     intervals = {}
@@ -338,6 +392,7 @@ def main(args):
 
                 # Filter all but Outgoing API calls, if the CDRs were exported from Monkey, Looker or 
                 # Twilio Console.  If not from these sources, the CDR file should be pre-filtered.
+                # Flags definition can be found here: https://wiki.hq.twilio.com/display/RT/Call (Twilions only).
                 if cdr_info.flags_col_id and (int(cdr[cdr_info.flags_col_id]) & 0x0002 != 2): 
                     continue
                 if cdr_info.direction_col_id and (cdr[cdr_info.direction_col_id] not in ['Outgoing API', 'outbound-api']): 
@@ -364,8 +419,8 @@ def main(args):
                         call_start -= timedelta(seconds=int(queue_time))
                 
                 # Filter records outside of the chosen period.
-                if args.start and call_start < args.start: continue
-                if args.end and call_start >= args.end: continue
+                if start and call_start < start: continue
+                if end and call_start >= end: continue
                 
                 # Count the call against its CPS interval.
                 num_counted += 1
