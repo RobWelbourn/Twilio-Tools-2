@@ -85,7 +85,7 @@ optional arguments:
 
 The program will by default attempt to auto-detect the format of the CDR file.  Twilio
 Console, Looker and Monkey download formats are recognized.  Otherwise, it looks for the 
-first column that is formatted as an ISO 8061 date.  If the above conditions are not true, 
+first column that is formatted as an ISO 8601 date.  If the above conditions are not true, 
 then you should specify the name (if there is a header row) or number (if no header) of 
 the column that contains the date/time the call was made.
 
