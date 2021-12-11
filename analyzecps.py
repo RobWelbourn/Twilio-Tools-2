@@ -39,6 +39,9 @@ import csv
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter, DayLocator, HourLocator
+import pytz
+
+utc=pytz.UTC
 
 
 __version__ = "1.0"
@@ -155,8 +158,8 @@ def main(args):
 
     num_read = 0
     intervals = []  # Each entry is a (datetime, int) tuple
-    earliest = datetime.max 
-    latest = datetime.min 
+    earliest = utc.localize(datetime.max)
+    latest = utc.localize(datetime.min) 
 
     with args.cps_file as cps_file:
         cps_lines = csv.DictReader(cps_file, fieldnames=['dt', 'cps'])
